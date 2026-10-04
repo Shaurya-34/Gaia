@@ -9,6 +9,7 @@ First run on one pixel (--pixels 0) and check the row count and columns.
 """
 import argparse
 import json
+import os
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -35,6 +36,8 @@ MIN_PLX_MAS = CUTS["raw_parallax_min_mas"]
 MIN_PLX_OVER_ERROR = CUTS["parallax_over_error_min"]
 MAX_RUWE = CUTS["ruwe_max"]
 SPLITS_PATH = Path(__file__).with_name("splits.json")
+# Gaia archive login (2 lines: username, password). Kept outside the repo.
+CREDENTIALS = Path(os.environ.get("GAIA_CREDENTIALS", Path.home() / ".gaia_credentials"))
 
 
 def pixel_source_id_range(level: int, pixel: int):
@@ -120,6 +123,10 @@ def main():
     ap.add_argument("--pixels", type=int, nargs="*", help="subset of pixels (for testing)")
     args = ap.parse_args()
 
+    if CREDENTIALS.exists():
+        Gaia.login(credentials_file=str(CREDENTIALS))  # longer timeouts, no row cap
+    else:
+        print(f"no {CREDENTIALS}; querying anonymously")
     args.out.mkdir(parents=True, exist_ok=True)
     n_pix = 12 * 4 ** args.level
     pixels = args.pixels if args.pixels else range(n_pix)
