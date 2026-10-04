@@ -116,7 +116,118 @@ def test_observables_match_astropy(stars):
     np.testing.assert_allclose(obs.pm_b, g.pm_b.to_value(u.mas / u.yr), rtol=1e-5, atol=1e-8)
 
 
+# --- round trip through features.py (noise off) ------------------------------
+
+def test_observables_round_trip_through_features(stars):
+    from features import to_features_cartesian
+
+    pos, vel = stars
+    obs = fn("cartesian_to_observables")(pos, vel).rename(columns={"parallax": "parallax_corrected"})
+    feats = to_features_cartesian(obs, tau_myr=1.0)
+    np.testing.assert_allclose(feats[:, :3], pos, rtol=1e-9, atol=1e-9)
+
+
+# --- synthetic field for the data-dependent functions -------------------------
+
+def synthetic_field(n, rng, plx_error=0.1):
+    """A fake real pull: columns as query_gaia.py + features.add_galactic_pm."""
+    pos, vel = random_stars(n, rng)
+    obs = fn("cartesian_to_observables")(pos, vel)
+    r_hat = pos / np.linalg.norm(pos, axis=1, keepdims=True)
+    rv = (vel * r_hat).sum(axis=1)
+    rv[rng.uniform(size=n) < 0.7] = np.nan  # most stars lack an RV
+    field = pd.DataFrame({
+        "source_id": np.arange(1, n + 1),
+        "l": obs.l, "b": obs.b, "parallax_corrected": obs.parallax,
+        "pm_l": obs.pm_l, "pm_b": obs.pm_b, "radial_velocity": rv,
+        "parallax_error": plx_error, "pmra_error": 0.1, "pmdec_error": 0.1,
+        "ruwe": 1.0, "phot_g_mean_mag": 15.0,
+    })
+    return field, vel
+
+
+@pytest.fixture
+def field():
+    return synthetic_field(3_000, np.random.default_rng(5))
+
+
+def params(**over):
+    p = {"injection_id": 7, "dist_pc": 150.0, "l_deg": 30.0, "b_deg": 10.0,
+         "n_members": 200, "r_half_pc": 3.0, "sigma_v_kms": 0.5}
+    p.update(over)
+    return p
+
+
+def test_bulk_velocity_is_a_real_star_with_rv(field):
+    df, vel = field
+    v = fn("bulk_velocity")(df, np.random.default_rng(6))
+    assert v.shape == (3,)
+    has_rv = df.radial_velocity.notna().to_numpy()
+    dist = np.linalg.norm(vel[has_rv] - v, axis=1)
+    assert dist.min() < 1e-6
+
+
+def test_assign_errors_and_noise(field):
+    df, _ = field
+    rng = np.random.default_rng(7)
+    obs = fn("cartesian_to_observables")(*random_stars(100, rng))
+    obs = fn("assign_errors")(obs, df, rng)
+    for col in ["parallax_error", "pm_l_error", "pm_b_error", "ruwe", "phot_g_mean_mag"]:
+        assert obs[col].notna().all()
+    noisy = fn("add_noise")(obs, np.random.default_rng(8))
+    assert not np.allclose(noisy.parallax, obs.parallax)
+    zero = obs.assign(parallax_error=0.0, pm_l_error=0.0, pm_b_error=0.0)
+    np.testing.assert_array_equal(fn("add_noise")(zero, rng)[["parallax", "pm_l", "pm_b"]],
+                                  zero[["parallax", "pm_l", "pm_b"]])
+
+
+def test_apply_selection_cuts():
+    obs = pd.DataFrame({
+        "parallax_corrected": [5.0, 1.9, 5.0, 5.0],
+        "parallax_error":     [0.1, 0.1, 1.0, 0.1],
+        "ruwe":               [1.0, 1.0, 1.0, 1.5],
+    })
+    kept = fn("apply_selection")(obs)
+    assert list(kept.index) == [0]  # fails: plx < 2, plx/err < 10, ruwe >= 1.4
+
+
+def test_inject_truth_matches_output(field):
+    df, _ = field
+    out, truth = fn("inject")(df, params(), np.random.default_rng(9))
+    injected = out[out.is_injected]
+    assert len(out) == len(df) + truth["n_surviving"]
+    assert len(injected) == truth["n_surviving"] > 0
+    assert set(injected.source_id) == set(truth["member_source_ids"])
+    assert (injected.source_id < 0).all() and injected.source_id.is_unique
+    assert not out.is_injected.iloc[:len(df)].any()
+
+
+def test_surviving_fraction_falls_with_distance(field):
+    df, _ = field
+    near = fn("inject")(df, params(dist_pc=100.0), np.random.default_rng(10))[1]
+    far = fn("inject")(df, params(dist_pc=490.0), np.random.default_rng(10))[1]
+    assert far["n_surviving"] < near["n_surviving"]
+
+
+def test_sample_params_ranges():
+    ps = fn("sample_params")(500, np.random.default_rng(11))
+    assert len(ps) == 500
+    assert len({p["injection_id"] for p in ps}) == 500
+    for p in ps:
+        assert 0 <= p["l_deg"] < 360 and -90 <= p["b_deg"] <= 90
+        assert p["n_members"] >= 1 and p["r_half_pc"] > 0 and p["sigma_v_kms"] > 0
+
+
 # --- determinism -----------------------------------------------------------
+
+def test_same_seed_same_injection(field):
+    df, _ = field
+    a_out, a_truth = fn("inject")(df, params(), np.random.default_rng(12))
+    b_out, b_truth = fn("inject")(df, params(), np.random.default_rng(12))
+    pd.testing.assert_frame_equal(a_out, b_out)
+    np.testing.assert_array_equal(a_truth["member_source_ids"], b_truth["member_source_ids"])
+    assert fn("sample_params")(5, np.random.default_rng(13)) == fn("sample_params")(5, np.random.default_rng(13))
+
 
 def test_same_seed_same_output():
     plummer = fn("sample_plummer_positions")
