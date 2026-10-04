@@ -223,7 +223,8 @@ Order: (1) pilot, (2) main injection-recovery on train/val, (3) fit and validate
 
 | Date | Section | Change | Reason |
 | --- | --- | --- | --- |
-| | | | |
+| 2026-10-04 | 2 | Data now comes from the Gaia DR3 bulk files (cdn.gea.esac.esa.int, `gaia_source` GaiaSource_*.csv.gz, MD5-checked) through `ingest_bulk.py`, which applies the same cuts locally, instead of archive TAP jobs in level-3 chunks. Same table, cuts, zero point and output columns; sealed-block stars are still dropped in memory and never written. Block-first: the pilot block (6) is pulled first. | Archive jobs failed or took about 9 min each (about 190 h per block; parallel jobs all failed with HTTP 500). Checked: one level-5 archive chunk (665 stars) matches the bulk rows exactly in source_ids and columns, with value differences below 1e-6. |
+| 2026-10-04 | 3 | HDBSCAN implementation changed from `sklearn.cluster.HDBSCAN` to the `hdbscan` package (0.8.44). Settings unchanged: `min_samples` = 10, leaf selection, `min_cluster_size` in {10, 20, 40, 80}. | The vetter (section 8) needs cluster stability and persistence, which sklearn does not expose. The two libraries count `min_samples` differently (sklearn includes the point itself): on synthetic fields `hdbscan` at 10 matches sklearn at 11 (ARI 0.96 to 1.00), so the detector now uses 10 neighbours besides the point itself. Whether this matches Hunt & Reffert's own setting is unverified. |
 
 ## 12. Sources
 
