@@ -31,6 +31,7 @@ injection:                       # section 4
   dist_pc: [50, 500]             # uniform
   r_half_pc: [0.5, 10.0]         # log-uniform
   sigma_v_kms: [0.2, 2.0]        # log-uniform
+  twin_k: 50                     # twin drawn from the k nearest real stars (Code choice, not in PREREG)
   distance_bins_pc: [50, 140, 230, 320, 410, 500]
   n_star_bins: [5, 10, 25, 60, 150, 2000]
   trials_per_cell_trainval: 20

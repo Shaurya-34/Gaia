@@ -5,30 +5,34 @@ Cartesian with x toward the Galactic centre; every function takes an
 np.random.Generator.
 
 `field` is a real pull from query_gaia.py after features.add_galactic_pm, so it
-has l, b, parallax_corrected, pm_l, pm_b, radial_velocity, parallax_error,
-pmra_error, pmdec_error, ruwe and phot_g_mean_mag.
+has l, b, parallax_corrected, pm_l, pm_b, radial_velocity and the TWIN_COLUMNS.
 
-Known simplifications (README.md): errors are copied from nearby real stars;
-RA/Dec proper-motion errors stand in for l/b ones; members have no CMD, so
-faint members that Gaia would never have measured are not removed.
+Known simplifications (README.md, PREREG section 4): each member copies the
+magnitude, colour, errors and quality columns of a random real "twin" near its
+position, so members have the local field's CMD, not a cluster sequence (no
+isochrone yet); RA/Dec proper-motion errors stand in for l/b ones.
 """
+import json
+from pathlib import Path
+
+import astropy.units as u
 import numpy as np
 import pandas as pd
+from astropy_healpix import healpix_to_lonlat
 from scipy.spatial import cKDTree
 
-from query_gaia import MAX_RUWE, MIN_PLX_OVER_ERROR
+from config import load_config
 
 K = 4.740470446          # km/s per (mas/yr) at 1 kpc, as in features.py
-MIN_PLX_CORRECTED = 2.0  # mas; same local cut as query_gaia.apply_zero_point
+CFG = load_config()
+CUTS = CFG["data"]
+SPLITS_PATH = Path(__file__).with_name("splits.json")
 
-# PLACEHOLDER ranges until PREREG.md fixes them from the 2024 first-kiloparsec
-# paper and Table 1 of the 2025 selection-function paper.
-PARAM_RANGES = {
-    "dist_pc": (50.0, 500.0),       # uniform
-    "n_members": (10, 200),         # log-uniform
-    "r_half_pc": (1.0, 10.0),       # log-uniform
-    "sigma_v_kms": (0.3, 2.0),      # log-uniform
-}
+# Copied from each member's twin (PREREG section 4).
+TWIN_COLUMNS = ["phot_g_mean_mag", "bp_rp", "parallax_error", "pmra_error", "pmdec_error",
+                "ruwe", "visibility_periods_used", "astrometric_excess_noise",
+                "phot_g_mean_flux_over_error", "phot_bp_mean_flux_over_error",
+                "phot_rp_mean_flux_over_error"]
 
 
 # 1-2: pure math, no data needed
@@ -97,17 +101,19 @@ def cartesian_to_observables(pos, vel):
 
 # 6-7: make it look like real Gaia
 def assign_errors(obs, field, rng):
-    """Copy errors, ruwe and G from the nearest real star in 3-D position.
-    rng is unused (nearest neighbour is deterministic); kept for the spec."""
+    """Give each member a twin: a random one of the `twin_k` real stars nearest
+    its 3-D position. Copies the twin's TWIN_COLUMNS and records its source_id."""
+    k = min(CFG["injection"]["twin_k"], len(field))
     tree = cKDTree(_positions(field.l, field.b, field.parallax_corrected))
-    _, idx = tree.query(_positions(obs.l, obs.b, obs.parallax))
-    donor = field.iloc[idx]
+    _, idx = tree.query(_positions(obs.l, obs.b, obs.parallax), k=k)
+    idx = np.asarray(idx).reshape(len(obs), k)
+    twin = field.iloc[idx[np.arange(len(obs)), rng.integers(k, size=len(obs))]]
     out = obs.copy()
-    out["parallax_error"] = donor.parallax_error.to_numpy()
-    out["pm_l_error"] = donor.pmra_error.to_numpy()    # RA/Dec errors stand in for l/b
-    out["pm_b_error"] = donor.pmdec_error.to_numpy()
-    out["ruwe"] = donor.ruwe.to_numpy()
-    out["phot_g_mean_mag"] = donor.phot_g_mean_mag.to_numpy()
+    for col in TWIN_COLUMNS:
+        out[col] = twin[col].to_numpy()
+    out["pm_l_error"] = out.pop("pmra_error")    # RA/Dec errors stand in for l/b
+    out["pm_b_error"] = out.pop("pmdec_error")
+    out["twin_source_id"] = twin.source_id.to_numpy()
     return out
 
 def _positions(l_deg, b_deg, parallax):
@@ -125,11 +131,19 @@ def add_noise(obs, rng):
 
 # 8: realism filter
 def apply_selection(obs):
-    # same cuts as the real pull (on parallax_corrected, as the local cut is)
+    # same cuts as the real pull (PREREG section 2); parallax cuts use the
+    # noisy parallax_corrected, the others the twin's values
+    flux = CUTS["flux_over_error_min"]
     keep = (
-        (obs.parallax_corrected >= MIN_PLX_CORRECTED)
-        & (obs.parallax_corrected / obs.parallax_error >= MIN_PLX_OVER_ERROR)
-        & (obs.ruwe < MAX_RUWE)
+        (obs.parallax_corrected >= CUTS["parallax_corrected_min_mas"])
+        & (obs.parallax_corrected / obs.parallax_error > CUTS["parallax_over_error_min"])
+        & (obs.ruwe < CUTS["ruwe_max"])
+        & (obs.visibility_periods_used > CUTS["visibility_periods_used_min"])
+        & (obs.astrometric_excess_noise < CUTS["astrometric_excess_noise_max"])
+        & (obs.phot_g_mean_flux_over_error > flux)
+        & (obs.phot_bp_mean_flux_over_error > flux)
+        & (obs.phot_rp_mean_flux_over_error > flux)
+        & obs.phot_g_mean_mag.between(*CUTS["g_mag_range"])
     )
     return obs[keep]
 
@@ -162,19 +176,31 @@ def inject(field, params, rng):
 
 
 # 10: the experiment driver
-def sample_params(n_trials, rng):
+def sample_params(n_trials, rng, split="train"):
+    """Ranges from config.yaml (PREREG section 4). Centres fall inside a random
+    eligible level-2 pixel of the split's blocks (PREREG section 7); that pixel
+    is the field to search. Per-cell top-up is the driver's job, not this one."""
+    ranges = CFG["injection"]
+    splits = json.loads(SPLITS_PATH.read_text())
+    level = splits["field_level"]
+    pixels = [c["pixel"] for b in splits["blocks"][split] for c in splits["eligible_centres"][str(b)]]
+
     def log_uniform(lo, hi):
         return float(np.exp(rng.uniform(np.log(lo), np.log(hi))))
 
     params = []
     for i in range(n_trials):
+        pixel = int(rng.choice(pixels))
+        l, b = healpix_to_lonlat(pixel, 2 ** level, dx=rng.uniform(), dy=rng.uniform(), order="nested")
         params.append({
             "injection_id": i,
-            "dist_pc": float(rng.uniform(*PARAM_RANGES["dist_pc"])),
-            "l_deg": float(rng.uniform(0, 360)),
-            "b_deg": float(np.rad2deg(np.arcsin(rng.uniform(-1, 1)))),  # uniform on the sky
-            "n_members": int(round(log_uniform(*PARAM_RANGES["n_members"]))),
-            "r_half_pc": log_uniform(*PARAM_RANGES["r_half_pc"]),
-            "sigma_v_kms": log_uniform(*PARAM_RANGES["sigma_v_kms"]),
+            "split": split,
+            "field_pixel": pixel,
+            "dist_pc": float(rng.uniform(*ranges["dist_pc"])),
+            "l_deg": float(l.to_value(u.deg)) % 360,
+            "b_deg": float(b.to_value(u.deg)),
+            "n_members": int(round(log_uniform(*ranges["n_members"]))),
+            "r_half_pc": log_uniform(*ranges["r_half_pc"]),
+            "sigma_v_kms": log_uniform(*ranges["sigma_v_kms"]),
         })
     return params

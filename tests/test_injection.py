@@ -141,7 +141,10 @@ def synthetic_field(n, rng, plx_error=0.1):
         "l": obs.l, "b": obs.b, "parallax_corrected": obs.parallax,
         "pm_l": obs.pm_l, "pm_b": obs.pm_b, "radial_velocity": rv,
         "parallax_error": plx_error, "pmra_error": 0.1, "pmdec_error": 0.1,
-        "ruwe": 1.0, "phot_g_mean_mag": 15.0,
+        "ruwe": 1.0, "phot_g_mean_mag": rng.uniform(8, 19, n), "bp_rp": rng.uniform(0, 3, n),
+        "visibility_periods_used": 20, "astrometric_excess_noise": 0.1,
+        "phot_g_mean_flux_over_error": 500.0, "phot_bp_mean_flux_over_error": 100.0,
+        "phot_rp_mean_flux_over_error": 100.0,
     })
     return field, vel
 
@@ -172,7 +175,8 @@ def test_assign_errors_and_noise(field):
     rng = np.random.default_rng(7)
     obs = fn("cartesian_to_observables")(*random_stars(100, rng))
     obs = fn("assign_errors")(obs, df, rng)
-    for col in ["parallax_error", "pm_l_error", "pm_b_error", "ruwe", "phot_g_mean_mag"]:
+    for col in ["parallax_error", "pm_l_error", "pm_b_error", "ruwe", "phot_g_mean_mag", "bp_rp",
+                "visibility_periods_used", "astrometric_excess_noise", "phot_bp_mean_flux_over_error"]:
         assert obs[col].notna().all()
     noisy = fn("add_noise")(obs, np.random.default_rng(8))
     assert not np.allclose(noisy.parallax, obs.parallax)
@@ -181,14 +185,39 @@ def test_assign_errors_and_noise(field):
                                   zero[["parallax", "pm_l", "pm_b"]])
 
 
+def test_twins_are_near_and_copied(field):
+    df, _ = field
+    rng = np.random.default_rng(14)
+    pos, vel = random_stars(200, rng)
+    obs = fn("assign_errors")(fn("cartesian_to_observables")(pos, vel), df, rng)
+    twin = df.set_index("source_id").loc[obs.twin_source_id]
+    np.testing.assert_array_equal(obs.phot_g_mean_mag, twin.phot_g_mean_mag)
+    np.testing.assert_array_equal(obs.bp_rp, twin.bp_rp)
+    # each twin is among the twin_k real stars nearest the member
+    k = injection.CFG["injection"]["twin_k"]
+    field_xyz = injection._positions(df.l, df.b, df.parallax_corrected)
+    twin_xyz = injection._positions(twin.l, twin.b, twin.parallax_corrected)
+    member_xyz = injection._positions(obs.l, obs.b, obs.parallax)
+    d_twin = np.linalg.norm(twin_xyz - member_xyz, axis=1)
+    d_all = np.linalg.norm(field_xyz[None, :, :] - member_xyz[:, None, :], axis=2)
+    kth = np.sort(d_all, axis=1)[:, k - 1]
+    assert (d_twin <= kth + 1e-9).all()
+    # twins are drawn at random, not always the nearest star
+    assert obs.twin_source_id.nunique() > 0.5 * len(obs)
+
+
 def test_apply_selection_cuts():
-    obs = pd.DataFrame({
-        "parallax_corrected": [5.0, 1.9, 5.0, 5.0],
-        "parallax_error":     [0.1, 0.1, 1.0, 0.1],
-        "ruwe":               [1.0, 1.0, 1.0, 1.5],
-    })
+    good = {"parallax_corrected": 5.0, "parallax_error": 0.1, "ruwe": 1.0,
+            "visibility_periods_used": 20, "astrometric_excess_noise": 0.1,
+            "phot_g_mean_flux_over_error": 500.0, "phot_bp_mean_flux_over_error": 100.0,
+            "phot_rp_mean_flux_over_error": 100.0, "phot_g_mean_mag": 15.0}
+    bad = [("parallax_corrected", 1.9), ("parallax_error", 0.5),  # plx/err = 10 is not > 10
+           ("ruwe", 1.4), ("visibility_periods_used", 6), ("astrometric_excess_noise", 1.0),
+           ("phot_g_mean_flux_over_error", 10.0), ("phot_bp_mean_flux_over_error", 10.0),
+           ("phot_rp_mean_flux_over_error", 10.0), ("phot_g_mean_mag", 21.5)]
+    obs = pd.DataFrame([good] + [{**good, col: val} for col, val in bad])
     kept = fn("apply_selection")(obs)
-    assert list(kept.index) == [0]  # fails: plx < 2, plx/err < 10, ruwe >= 1.4
+    assert list(kept.index) == [0]
 
 
 def test_inject_truth_matches_output(field):
@@ -210,12 +239,32 @@ def test_surviving_fraction_falls_with_distance(field):
 
 
 def test_sample_params_ranges():
-    ps = fn("sample_params")(500, np.random.default_rng(11))
-    assert len(ps) == 500
-    assert len({p["injection_id"] for p in ps}) == 500
-    for p in ps:
-        assert 0 <= p["l_deg"] < 360 and -90 <= p["b_deg"] <= 90
-        assert p["n_members"] >= 1 and p["r_half_pc"] > 0 and p["sigma_v_kms"] > 0
+    import json
+
+    from splits import galactic_block
+
+    rng_cfg = injection.CFG["injection"]
+    splits = json.loads(injection.SPLITS_PATH.read_text())
+    for split in ["train", "val", "test"]:
+        ps = fn("sample_params")(300, np.random.default_rng(11), split=split)
+        assert len(ps) == 300 and len({p["injection_id"] for p in ps}) == 300
+        allowed = {c["pixel"] for b in splits["blocks"][split] for c in splits["eligible_centres"][str(b)]}
+        for p in ps:
+            assert p["field_pixel"] in allowed
+            assert galactic_block(p["l_deg"], p["b_deg"], level=splits["field_level"]) == p["field_pixel"]
+            assert rng_cfg["dist_pc"][0] <= p["dist_pc"] <= rng_cfg["dist_pc"][1]
+            assert rng_cfg["n_members"][0] <= p["n_members"] <= rng_cfg["n_members"][1]
+            assert rng_cfg["r_half_pc"][0] <= p["r_half_pc"] <= rng_cfg["r_half_pc"][1]
+            assert rng_cfg["sigma_v_kms"][0] <= p["sigma_v_kms"] <= rng_cfg["sigma_v_kms"][1]
+
+
+def test_sample_params_never_uses_sealed_block():
+    import json
+
+    sealed = json.loads(injection.SPLITS_PATH.read_text())["blocks"]["sealed"]
+    for split in ["train", "val", "test"]:
+        for p in fn("sample_params")(200, np.random.default_rng(15), split=split):
+            assert p["field_pixel"] // 16 not in sealed
 
 
 # --- determinism -----------------------------------------------------------
