@@ -24,6 +24,12 @@ search:                          # section 3
   field_level: 2                 # field = level-2 pixel plus its 8 neighbours
   centroid_tolerance_pc: 5
   cst_tau: [3, 5, 7]
+  # Code choices below, not PREREG numbers
+  cst_knn:                       # ocelot's DEFAULT_KNN_KWARGS for the Mann-Whitney CST
+    overcalculation_factor: 3.0
+    min_field_stars: 100
+    max_field_stars: 500
+  duplicate_jaccard: 0.5         # groups overlapping this much are one group; highest CST kept
   ablation_tau_myr: [5, 10, 20]  # Cartesian ablation only
 
 injection:                       # section 4
