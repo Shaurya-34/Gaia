@@ -8,25 +8,33 @@ NOT YET RUN against the real archive (the dev sandbox could not reach it).
 First run on one pixel (--pixels 0) and check the row count and columns.
 """
 import argparse
+import json
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 from astroquery.gaia import Gaia
 
+from config import load_config
+
 # Columns we need. nu_eff_used_in_astrometry, pseudocolour, ecl_lat and
 # astrometric_params_solved are required by the zero-point package.
 COLUMNS = """source_id, ra, dec, l, b, parallax, parallax_error,
     pmra, pmra_error, pmdec, pmdec_error, ruwe,
     phot_g_mean_mag, bp_rp, radial_velocity, radial_velocity_error,
+    visibility_periods_used, astrometric_excess_noise,
+    phot_g_mean_flux_over_error, phot_bp_mean_flux_over_error, phot_rp_mean_flux_over_error,
     nu_eff_used_in_astrometry, pseudocolour, ecl_lat, astrometric_params_solved"""
 
-# Cuts. Parallax is cut on the RAW value so the archive can prune early;
-# the corrected parallax is cut again locally.
-MIN_PLX_MAS = 1.9
-MIN_PLX_OVER_ERROR = 10
-MAX_RUWE = 1.4
+# Cuts (PREREG section 2, values in config.yaml). Parallax is cut on the RAW
+# value so the archive can prune early; the corrected parallax is cut again locally.
+CUTS = load_config()["data"]
+MIN_PLX_MAS = CUTS["raw_parallax_min_mas"]
+MIN_PLX_OVER_ERROR = CUTS["parallax_over_error_min"]
+MAX_RUWE = CUTS["ruwe_max"]
+SPLITS_PATH = Path(__file__).with_name("splits.json")
 
 
 def pixel_source_id_range(level: int, pixel: int):
@@ -46,8 +54,13 @@ def build_query(level: int, pixel: int) -> str:
     FROM gaiadr3.gaia_source
     WHERE source_id >= {lo} AND source_id < {hi}
       AND parallax >= {MIN_PLX_MAS}
-      AND parallax_over_error >= {MIN_PLX_OVER_ERROR}
+      AND parallax_over_error > {MIN_PLX_OVER_ERROR}
       AND ruwe < {MAX_RUWE}
+      AND visibility_periods_used > {CUTS["visibility_periods_used_min"]}
+      AND astrometric_excess_noise < {CUTS["astrometric_excess_noise_max"]}
+      AND phot_g_mean_flux_over_error > {CUTS["flux_over_error_min"]}
+      AND phot_bp_mean_flux_over_error > {CUTS["flux_over_error_min"]}
+      AND phot_rp_mean_flux_over_error > {CUTS["flux_over_error_min"]}
     """
 
 
@@ -60,8 +73,8 @@ def apply_zero_point(df: pd.DataFrame) -> pd.DataFrame:
 
     zpt.load_tables()
     ok = (
-        df.astrometric_params_solved.isin([31, 95])
-        & df.phot_g_mean_mag.between(6.0, 21.0)
+        df.astrometric_params_solved.isin(CUTS["astrometric_params_solved"])
+        & df.phot_g_mean_mag.between(*CUTS["g_mag_range"])
     )
     df = df[ok].copy()
     zp = zpt.get_zpt(
@@ -73,9 +86,18 @@ def apply_zero_point(df: pd.DataFrame) -> pd.DataFrame:
         _warnings=False,
     )
     df["parallax_corrected"] = df.parallax - zp
-    df = df[df.parallax_corrected >= 2.0]  # ~500 pc
+    df = df[df.parallax_corrected >= CUTS["parallax_corrected_min_mas"]]  # ~500 pc
     return df.drop(columns=["nu_eff_used_in_astrometry", "pseudocolour",
                             "ecl_lat", "astrometric_params_solved"])
+
+
+def drop_sealed(df: pd.DataFrame) -> pd.DataFrame:
+    """Remove stars in the sealed block (Galactic level-0, from splits.json)
+    before anything is written. Download chunks are ICRS, so this is per star."""
+    from splits import galactic_block
+
+    sealed = json.loads(SPLITS_PATH.read_text())["blocks"]["sealed"]
+    return df[~np.isin(galactic_block(df.l.to_numpy(), df.b.to_numpy()), sealed)]
 
 
 def fetch_pixel(level: int, pixel: int, retries: int = 3) -> pd.DataFrame:
@@ -102,16 +124,23 @@ def main():
     n_pix = 12 * 4 ** args.level
     pixels = args.pixels if args.pixels else range(n_pix)
 
+    manifest = args.out / "manifest.csv"
     for pix in pixels:
         path = args.out / f"L{args.level}_{pix:05d}.parquet"
         if path.exists():
             continue
         t0 = time.time()
+        accessed = datetime.now(timezone.utc).isoformat(timespec="seconds")
         raw = fetch_pixel(args.level, pix)
-        clean = apply_zero_point(raw) if len(raw) else raw
+        unsealed = drop_sealed(raw)
+        clean = apply_zero_point(unsealed) if len(unsealed) else unsealed
         clean.to_parquet(path, index=False)
-        print(f"pixel {pix}/{n_pix}: raw {len(raw)} -> kept {len(clean)} "
-              f"({time.time() - t0:.0f}s)")
+        row = pd.DataFrame([{"level": args.level, "pixel": pix, "accessed_utc": accessed,
+                             "raw": len(raw), "sealed_dropped": len(raw) - len(unsealed),
+                             "kept": len(clean)}])
+        row.to_csv(manifest, mode="a", header=not manifest.exists(), index=False)
+        print(f"pixel {pix}/{n_pix}: raw {len(raw)} -> sealed dropped "
+              f"{len(raw) - len(unsealed)} -> kept {len(clean)} ({time.time() - t0:.0f}s)")
 
 
 if __name__ == "__main__":
