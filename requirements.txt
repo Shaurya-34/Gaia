@@ -8,3 +8,4 @@ gaiadr3-zeropoint
 lightgbm
 pyyaml
 astropy-healpix
+hdbscan

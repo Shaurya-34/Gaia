@@ -11,11 +11,11 @@ merged, keeping the highest CST.
 `df` columns: source_id, l, b, parallax_corrected, pm_l, pm_b (README.md).
 """
 import astropy.units as u
+import hdbscan
 import numpy as np
-import pandas as pd
 from astropy.coordinates import SkyCoord
 from astropy_healpix import healpix_to_lonlat, neighbours
-from sklearn.cluster import HDBSCAN
+from hdbscan._hdbscan_tree import compute_stability
 
 from config import load_config
 from features import to_features
@@ -58,6 +58,17 @@ def recentre(df, l0, b0):
     return out
 
 
+def cluster_stats(clusterer):
+    """Per-label (stability, persistence) from an hdbscan.HDBSCAN fit. Label i
+    is the i-th selected node of the condensed tree in sorted order (checked
+    in tests/test_baseline.py, since these are private hdbscan helpers)."""
+    tree = clusterer.condensed_tree_
+    selected = sorted(tree._select_clusters())
+    stability = compute_stability(tree._raw_tree)
+    return {i: (float(stability[node]), float(clusterer.cluster_persistence_[i]))
+            for i, node in enumerate(selected)}
+
+
 def run_hdbscan(df_field, centre, level=CFG["field_level"]):
     """All groups from every min_cluster_size run on one field, with CSTs."""
     l0, b0 = pixel_centre(centre, level)
@@ -65,11 +76,12 @@ def run_hdbscan(df_field, centre, level=CFG["field_level"]):
     ids = df_field.source_id.to_numpy()
     groups = []
     for mcs in CFG["min_cluster_size"]:
-        clusterer = HDBSCAN(min_cluster_size=mcs, min_samples=CFG["min_samples"],
-                            cluster_selection_method=CFG["cluster_selection_method"], copy=True).fit(X)
+        clusterer = hdbscan.HDBSCAN(min_cluster_size=mcs, min_samples=CFG["min_samples"],
+                                    cluster_selection_method=CFG["cluster_selection_method"]).fit(X)
         labels = clusterer.labels_
         if labels.max() < 0:
             continue
+        stats = cluster_stats(clusterer)
         cst, _ = cluster_significance_test(X, labels, min_samples=CFG["min_samples"], knn_kwargs=CFG["cst_knn"])
         for lab in np.unique(labels[labels >= 0]):
             m = labels == lab
@@ -77,6 +89,7 @@ def run_hdbscan(df_field, centre, level=CFG["field_level"]):
             groups.append({
                 "field_pixel": int(centre), "min_cluster_size": mcs,
                 "source_ids": ids[m], "n_members": int(m.sum()), "cst": float(cst[lab]),
+                "stability": stats[lab][0], "persistence": stats[lab][1],
                 "mean_membership_probability": float(clusterer.probabilities_[m].mean()),
                 "l": float(np.median(members.l)), "b": float(np.median(members.b)),
                 "parallax_corrected": float(np.median(members.parallax_corrected)),

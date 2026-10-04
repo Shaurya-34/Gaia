@@ -93,6 +93,50 @@ def test_merge_duplicates_keeps_highest_cst():
     assert [g["cst"] for g in kept] == [9.0, 3.0]
 
 
+def blobs_in_noise(seed):
+    rng = np.random.default_rng(seed)
+    return np.vstack([rng.uniform(0, 1, (3000, 5)), rng.normal(0.5, 0.01, (60, 5)), rng.normal(0.2, 0.01, (40, 5))])
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2])
+@pytest.mark.parametrize("mcs", [10, 20, 40])
+def test_hdbscan_package_matches_sklearn(seed, mcs):
+    """Same groups as sklearn's HDBSCAN once min_samples is aligned: sklearn
+    counts the point itself, so hdbscan's 10 is sklearn's 11."""
+    import hdbscan
+    from sklearn.cluster import HDBSCAN as SkHDBSCAN
+    from sklearn.metrics import adjusted_rand_score
+
+    X = blobs_in_noise(seed)
+    h = hdbscan.HDBSCAN(min_cluster_size=mcs, min_samples=10, cluster_selection_method="leaf").fit(X).labels_
+    s = SkHDBSCAN(min_cluster_size=mcs, min_samples=11, cluster_selection_method="leaf", copy=True).fit(X).labels_
+    assert adjusted_rand_score(h, s) > 0.95
+
+
+def test_cluster_stats_map_labels_to_condensed_tree_nodes():
+    import hdbscan
+
+    X = blobs_in_noise(0)
+    c = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=10, cluster_selection_method="leaf").fit(X)
+    raw = c.condensed_tree_._raw_tree
+    children = {}
+    for p, ch in zip(raw["parent"], raw["child"]):
+        children.setdefault(p, []).append(ch)
+
+    def points(node):
+        out, stack = set(), [node]
+        while stack:
+            for ch in children.get(stack.pop(), []):
+                out.add(ch) if ch < len(X) else stack.append(ch)
+        return out
+
+    stats = bl.cluster_stats(c)
+    assert sorted(stats) == list(range(c.labels_.max() + 1))
+    for i, node in enumerate(sorted(c.condensed_tree_._select_clusters())):
+        assert points(node) == set(np.flatnonzero(c.labels_ == i))
+    assert all(np.isfinite(s) and s >= 0 and np.isfinite(p) and p >= 0 for s, p in stats.values())
+
+
 def test_detects_central_cluster_and_drops_neighbour(sky):
     df, a, c = sky
     groups = bl.detect(df, CENTRE)
@@ -101,4 +145,5 @@ def test_detects_central_cluster_and_drops_neighbour(sky):
     assert best_a >= 0.5 and match["cst"] > 3
     assert all(jaccard(g["source_ids"], c.source_id) < 0.1 for g in groups)
     for g in groups:
-        assert {"field_pixel", "min_cluster_size", "n_members", "cst", "mean_membership_probability"} <= g.keys()
+        assert {"field_pixel", "min_cluster_size", "n_members", "cst", "mean_membership_probability",
+                "stability", "persistence"} <= g.keys()
