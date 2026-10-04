@@ -22,6 +22,23 @@ def test_pixel_range_is_level3_width():
     assert query_gaia.pixel_source_id_range(3, 5) == (5 * 2 ** 53, 6 * 2 ** 53)
 
 
+def test_block_chunks_cover_the_whole_block():
+    import astropy.units as u
+    from astropy.coordinates import SkyCoord
+    from astropy_healpix import lonlat_to_healpix
+
+    level, block = 4, 9
+    chunks = set(query_gaia.icrs_pixels_for_block(block, level))
+    rng = np.random.default_rng(1)
+    l = rng.uniform(0, 360, 200_000)
+    b = np.rad2deg(np.arcsin(rng.uniform(-1, 1, 200_000)))
+    inside = splits.galactic_block(l, b) == block
+    c = SkyCoord(l=l[inside] * u.deg, b=b[inside] * u.deg, frame="galactic").icrs
+    needed = set(lonlat_to_healpix(c.ra, c.dec, 2 ** level, order="nested").tolist())
+    assert needed <= chunks                      # nothing in the block is missed
+    assert len(chunks) < 1.35 * len(needed)      # the safety ring of neighbours costs < 35% extra
+
+
 def test_drop_sealed_removes_only_sealed_block():
     sealed = json.loads(query_gaia.SPLITS_PATH.read_text())["blocks"]["sealed"]
     rng = np.random.default_rng(0)
