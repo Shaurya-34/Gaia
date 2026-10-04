@@ -14,6 +14,7 @@ import pandas as pd
 import psutil
 
 import baseline
+import catalogue
 import injection
 from config import load_config
 from features import add_galactic_pm
@@ -39,9 +40,10 @@ def peak_memory_gb():
     return getattr(m, "peak_wset", m.rss) / 1e9
 
 
-def run_trial(field, params, seed):
+def run_trial(field, params, seed, known_members=None):
     """Inject one cluster into `field` (stars of its level-2 field), run the
-    baseline, match and score. Returns one result row."""
+    baseline, match and score. Returns one result row. With `known_members`
+    (Hunt & Reffert 2023), the PREREG section 5 overlap rule is reported."""
     rng = np.random.default_rng(seed)
     field_with, truth = injection.inject(field, params, rng)
     t0 = time.perf_counter()
@@ -65,6 +67,10 @@ def run_trial(field, params, seed):
     })
     for tau in TAUS:
         row[f"detected_tau{tau}"] = bool(match and match["cst"] > tau)
+    if known_members is not None:
+        discard, name, n_known = (catalogue.known_overlap(match["source_ids"], members, known_members)
+                                  if match else (False, None, 0))
+        row.update({"known_overlap_discard": discard, "known_overlap_cluster": name, "known_overlap_n": n_known})
     return row
 
 
@@ -86,6 +92,9 @@ def summarise(trials):
     print(f"\nmatched Jaccard quartiles: {trials.matched_jaccard.quantile([.25, .5, .75]).round(2).tolist()}; "
           f"trials with n_* < {CFG['definitions']['min_n_star_fit']}: "
           f"{(trials.n_surviving < CFG['definitions']['min_n_star_fit']).sum()}")
+    if "known_overlap_discard" in trials:
+        print(f"known-cluster overlap rule (PREREG section 5) would discard {int(trials.known_overlap_discard.sum())} "
+              f"trial(s): {trials.loc[trials.known_overlap_discard, 'known_overlap_cluster'].value_counts().to_dict()}")
 
 
 def main():
@@ -118,13 +127,16 @@ def main():
               + f" | {runtime:.0f} s, peak memory {peak_memory_gb():.1f} GB")
         return
 
+    known = catalogue.load()[1] if (catalogue.OUT / "hr23_members.parquet").exists() else None
+    if known is None:
+        print("no Hunt & Reffert 2023 catalogue (run catalogue.py); overlap rule not reported")
     OUT.mkdir(parents=True, exist_ok=True)
     path = OUT / "trials.csv"
     done = set(pd.read_csv(path).injection_id) if path.exists() else set()
     for p in params:
         if p["injection_id"] in done:
             continue
-        row = run_trial(field_for(p["field_pixel"]), p, [inj["pilot_seed"], p["injection_id"]])
+        row = run_trial(field_for(p["field_pixel"]), p, [inj["pilot_seed"], p["injection_id"]], known)
         pd.DataFrame([row]).to_csv(path, mode="a", header=not path.exists(), index=False)
         print(f"trial {row['injection_id']}: d {row['dist_pc']:.0f} pc, n_* {row['n_surviving']}, "
               f"J {row['matched_jaccard']:.2f}, CST {row['matched_cst']:.1f}, {row['runtime_s']:.0f} s")

@@ -62,6 +62,17 @@ def test_run_trial_detects_a_rich_nearby_cluster(field):
     assert {f"detected_tau{t}" for t in pilot.TAUS} <= row.keys()
 
 
+def test_run_trial_reports_known_overlap(field):
+    centre, df = field
+    # pretend 50 real field stars near the injection site are a catalogue cluster
+    l, b = bl.pixel_centre(centre)
+    near = df.iloc[np.argsort(np.hypot(df.l - l, df.b - b))[:50]]
+    known = pd.DataFrame({"Name": "Fake_1", "GaiaDR3": near.source_id})
+    row = pilot.run_trial(df, trial_params(centre), [1, 0], known)
+    assert {"known_overlap_discard", "known_overlap_cluster", "known_overlap_n"} <= row.keys()
+    assert row["known_overlap_discard"] in (True, False)
+
+
 def test_run_trial_is_deterministic(field):
     centre, df = field
     a = pilot.run_trial(df, trial_params(centre, n_members=40), [1, 1])
