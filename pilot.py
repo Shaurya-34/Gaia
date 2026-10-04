@@ -3,7 +3,7 @@ not used in any result. Measures runtime per detector run, checks that cut
 survival against distance looks sane, and exercises the Jaccard scorer.
 
 Run:  python pilot.py --baseline-only     one real field, no injection: runtime and memory
-      python pilot.py                     the trials (resume-safe, one CSV row per trial)
+      python pilot.py --workers 3         the trials (resume-safe, one CSV row per trial)
 """
 import argparse
 import time
@@ -102,6 +102,10 @@ def main():
     ap.add_argument("--bulk", type=Path, default=Path("data/bulk"))
     ap.add_argument("--baseline-only", action="store_true", help="one real field, no injection")
     ap.add_argument("--trials", type=int, default=CFG["injection"]["pilot_trials"])
+    ap.add_argument("--workers", type=int, default=1,
+                    help="trials run in parallel processes (each needs about 2.3 GB)")
+    ap.add_argument("--fields", type=Path, default=Path("data/pilot_fields"),
+                    help="where each pilot field is saved for the workers")
     args = ap.parse_args()
 
     inj = CFG["injection"]
@@ -127,20 +131,56 @@ def main():
               + f" | {runtime:.0f} s, peak memory {peak_memory_gb():.1f} GB")
         return
 
-    known = catalogue.load()[1] if (catalogue.OUT / "hr23_members.parquet").exists() else None
-    if known is None:
+    known = catalogue.OUT / "hr23_members.parquet"
+    if not known.exists():
+        known = None
         print("no Hunt & Reffert 2023 catalogue (run catalogue.py); overlap rule not reported")
-    OUT.mkdir(parents=True, exist_ok=True)
-    path = OUT / "trials.csv"
+    # Save each pilot field once; worker processes load only the fields they need.
+    args.fields.mkdir(parents=True, exist_ok=True)
+    for pixel in sorted({p["field_pixel"] for p in params}):
+        if not (args.fields / f"field_{pixel}.parquet").exists():
+            field_for(pixel).to_parquet(args.fields / f"field_{pixel}.parquet", index=False)
+    del stars, fields
+    run_trials(params, args.fields, OUT / "trials.csv", args.workers, known)
+    summarise(pd.read_csv(OUT / "trials.csv"))
+
+
+# --- worker processes: each holds the fields it has used, loaded on demand ---
+_FIELDS, _FIELDS_DIR, _KNOWN = {}, None, None
+
+
+def _init_worker(fields_dir, known_path):
+    global _FIELDS_DIR, _KNOWN
+    _FIELDS_DIR = Path(fields_dir)
+    _KNOWN = pd.read_parquet(known_path) if known_path else None
+
+
+def _trial_in_worker(params, seed):
+    pixel = params["field_pixel"]
+    if pixel not in _FIELDS:
+        _FIELDS[pixel] = pd.read_parquet(_FIELDS_DIR / f"field_{pixel}.parquet")
+    return run_trial(_FIELDS[pixel], params, seed, _KNOWN)
+
+
+def run_trials(params, fields_dir, path, workers=1, known_path=None):
+    """Run the trials not yet in `path` on `workers` processes; only this
+    process writes `path`, one row per finished trial (resume-safe)."""
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    seed0 = CFG["injection"]["pilot_seed"]
+    path.parent.mkdir(parents=True, exist_ok=True)
     done = set(pd.read_csv(path).injection_id) if path.exists() else set()
-    for p in params:
-        if p["injection_id"] in done:
-            continue
-        row = run_trial(field_for(p["field_pixel"]), p, [inj["pilot_seed"], p["injection_id"]], known)
-        pd.DataFrame([row]).to_csv(path, mode="a", header=not path.exists(), index=False)
-        print(f"trial {row['injection_id']}: d {row['dist_pc']:.0f} pc, n_* {row['n_surviving']}, "
-              f"J {row['matched_jaccard']:.2f}, CST {row['matched_cst']:.1f}, {row['runtime_s']:.0f} s")
-    summarise(pd.read_csv(path))
+    todo = [p for p in params if p["injection_id"] not in done]
+    print(f"{len(todo)} of {len(params)} trials to run on {workers} worker(s)")
+    with ProcessPoolExecutor(max_workers=workers, initializer=_init_worker,
+                             initargs=(str(fields_dir), str(known_path) if known_path else None)) as pool:
+        futures = [pool.submit(_trial_in_worker, p, [seed0, p["injection_id"]]) for p in todo]
+        for fut in as_completed(futures):
+            row = fut.result()
+            pd.DataFrame([row]).to_csv(path, mode="a", header=not path.exists(), index=False)
+            print(f"trial {row['injection_id']}: d {row['dist_pc']:.0f} pc, n_* {row['n_surviving']}, "
+                  f"J {row['matched_jaccard']:.2f}, CST {row['matched_cst']:.1f}, {row['runtime_s']:.0f} s",
+                  flush=True)
 
 
 if __name__ == "__main__":

@@ -73,6 +73,25 @@ def test_run_trial_reports_known_overlap(field):
     assert row["known_overlap_discard"] in (True, False)
 
 
+def test_run_trials_in_parallel_and_resume(field, tmp_path):
+    centre, df = field
+    df.to_parquet(tmp_path / f"field_{centre}.parquet", index=False)
+    params = [trial_params(centre, injection_id=i, n_members=60) for i in range(3)]
+    out = tmp_path / "trials.csv"
+    pilot.run_trials(params, tmp_path, out, workers=2)
+    first = pd.read_csv(out)
+    assert sorted(first.injection_id) == [0, 1, 2]
+    pilot.run_trials(params, tmp_path, out, workers=2)  # resume: nothing left to run
+    assert len(pd.read_csv(out)) == 3
+    # same results as running one at a time, apart from timing and memory
+    serial = tmp_path / "serial.csv"
+    pilot.run_trials(params, tmp_path, serial, workers=1)
+    drop = ["runtime_s", "peak_memory_gb"]
+    a = first.drop(columns=drop).sort_values("injection_id").reset_index(drop=True)
+    b = pd.read_csv(serial).drop(columns=drop).sort_values("injection_id").reset_index(drop=True)
+    pd.testing.assert_frame_equal(a, b)
+
+
 def test_run_trial_is_deterministic(field):
     centre, df = field
     a = pilot.run_trial(df, trial_params(centre, n_members=40), [1, 1])
