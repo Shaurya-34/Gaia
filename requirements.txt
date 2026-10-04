@@ -1,0 +1,8 @@
+numpy
+pandas
+pyarrow
+astropy
+astroquery
+scikit-learn>=1.3
+gaiadr3-zeropoint
+lightgbm
