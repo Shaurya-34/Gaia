@@ -44,6 +44,8 @@ injection:                       # section 4
   trials_per_cell_test: 6
   max_attempts_per_cell: 100
   pilot_trials: 100
+  pilot_block: 6                 # brief decision 2026-10-04 (dense equatorial training block)
+  pilot_seed: 20261004           # Code choice; trial i uses default_rng([pilot_seed, i])
   cpu_hours_ceiling: 150
   fallback:
     clusters_per_field: 3

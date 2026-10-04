@@ -176,14 +176,18 @@ def inject(field, params, rng):
 
 
 # 10: the experiment driver
-def sample_params(n_trials, rng, split="train"):
+def sample_params(n_trials, rng, split="train", blocks=None):
     """Ranges from config.yaml (PREREG section 4). Centres fall inside a random
-    eligible level-2 pixel of the split's blocks (PREREG section 7); that pixel
-    is the field to search. Per-cell top-up is the driver's job, not this one."""
+    eligible level-2 pixel of the split's blocks (PREREG section 7), or of
+    `blocks` only (they must belong to the split); that pixel is the field to
+    search. Per-cell top-up is the driver's job, not this one."""
     ranges = CFG["injection"]
     splits = json.loads(SPLITS_PATH.read_text())
     level = splits["field_level"]
-    pixels = [c["pixel"] for b in splits["blocks"][split] for c in splits["eligible_centres"][str(b)]]
+    use = splits["blocks"][split] if blocks is None else list(blocks)
+    if not set(use) <= set(splits["blocks"][split]):
+        raise ValueError(f"blocks {use} are not all in the {split} split")
+    pixels = [c["pixel"] for b in use for c in splits["eligible_centres"][str(b)]]
 
     def log_uniform(lo, hi):
         return float(np.exp(rng.uniform(np.log(lo), np.log(hi))))

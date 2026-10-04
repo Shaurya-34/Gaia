@@ -9,3 +9,4 @@ lightgbm
 pyyaml
 astropy-healpix
 hdbscan
+psutil
