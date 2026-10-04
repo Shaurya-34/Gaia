@@ -1,0 +1,90 @@
+# Every pre-registered number (PREREG.md v1). Code reads this; nothing is
+# hard-coded. Section numbers refer to PREREG.md. Changing a value after the
+# prereg-v1 tag needs an entry in PREREG section 11.
+
+healpix_frame: galactic          # blocks, splits and fields (brief decision 2026-10-04)
+
+data:                            # section 2
+  query_level: 3                 # HEALPix level of the download chunks (ICRS, via source_id)
+  raw_parallax_min_mas: 1.9      # archive-side prefilter before the zero-point correction
+  parallax_corrected_min_mas: 2.0
+  parallax_over_error_min: 10
+  ruwe_max: 1.4
+  visibility_periods_used_min: 6
+  astrometric_excess_noise_max: 1.0
+  flux_over_error_min: 10        # G, BP and RP
+  g_mag_range: [6.0, 21.0]       # zero-point validity range
+  astrometric_params_solved: [31, 95]
+  distance_range_pc: [50, 500]
+
+search:                          # section 3
+  min_samples: 10
+  min_cluster_size: [10, 20, 40, 80]
+  cluster_selection_method: leaf
+  field_level: 2                 # field = level-2 pixel plus its 8 neighbours
+  centroid_tolerance_pc: 5
+  cst_tau: [3, 5, 7]
+  ablation_tau_myr: [5, 10, 20]  # Cartesian ablation only
+
+injection:                       # section 4
+  n_members: [10, 2000]          # log-uniform
+  dist_pc: [50, 500]             # uniform
+  r_half_pc: [0.5, 10.0]         # log-uniform
+  sigma_v_kms: [0.2, 2.0]        # log-uniform
+  distance_bins_pc: [50, 140, 230, 320, 410, 500]
+  n_star_bins: [5, 10, 25, 60, 150, 2000]
+  trials_per_cell_trainval: 20
+  trials_per_cell_test: 6
+  max_attempts_per_cell: 100
+  pilot_trials: 100
+  cpu_hours_ceiling: 150
+  fallback:
+    clusters_per_field: 3
+    min_separation_deg: 25
+    matched_trials: 60
+    max_rate_difference: 0.10
+  bulk_velocity_fallback_kms:    # mixture 0.8 N(0, sigma) + 0.2 U(-u, u)
+    V_R:   {sigma: 35, u: 150}
+    V_phi: {sigma: 25, u: 150}
+    V_Z:   {sigma: 15, u: 100}
+  ocelot_crosscheck:
+    n_clusters: 100
+    dist_pc: [300, 500]
+    max_survival_difference: 0.10
+    max_n50_difference_dex: 0.2
+
+definitions:                     # section 5
+  min_n_star_fit: 5
+  jaccard_recovered: 0.5
+
+analysis:                        # section 6
+  bootstrap_resamples: 1000
+  rho_data_k: 10
+  calibration_slope_range: [0.8, 1.2]
+
+splits:                          # section 7
+  level: 0
+  n_train: 7
+  n_val: 2
+  n_test: 2
+  n_sealed: 1
+  seed: 20261004
+
+rediscovery:                     # section 8
+  min_members: 30
+  recall_min: 0.7
+
+shuffle_null:                    # section 8
+  cell_level: 5
+  parallax_quantile_bins: 8
+  repeats_per_field: 3
+  max_false_positives_per_million: 1
+
+vetter:                          # section 8
+  recall: 0.8
+  min_precision_gain: 0.05
+
+candidates:                      # section 9
+  min_members: 10
+  min_rvs: 5
+  rv_permutation_p: 0.05
