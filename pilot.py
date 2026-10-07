@@ -74,15 +74,17 @@ def run_trial(field, params, seed, known_members=None):
     return row
 
 
-def summarise(trials):
+def summarise(trials, workers=1):
     n = len(trials)
     rt = trials.runtime_s
     main_runs = CFG["injection"]["trials_per_cell_trainval"] * 25 + CFG["injection"]["trials_per_cell_test"] * 25
     hours = main_runs * rt.mean() / 3600
     print(f"\n{n} trials | detector run (4 min_cluster_size values): median {rt.median():.0f} s, "
           f"mean {rt.mean():.0f} s, max {rt.max():.0f} s | peak memory {trials.peak_memory_gb.max():.1f} GB")
-    print(f"projected main run: {main_runs} trials x {rt.mean():.0f} s = {hours:.0f} CPU-hours "
-          f"(ceiling {CFG['injection']['cpu_hours_ceiling']})")
+    print(f"projected main run: {main_runs} trials x {rt.mean():.0f} s = {hours:.0f} search-hours "
+          f"(per-search wall time summed; each search uses several cores, and runtimes were measured "
+          f"with other workers running). Wall clock at {workers} worker(s): {hours / workers:.0f} h. "
+          f"PREREG ceiling: {CFG['injection']['cpu_hours_ceiling']} CPU-hours")
     bins = CFG["injection"]["distance_bins_pc"]
     by_d = trials.groupby(pd.cut(trials.dist_pc, bins), observed=False)
     print("\nby distance: trials, median survival, detected (tau 3), recovered (J >= 0.5)")
@@ -142,7 +144,7 @@ def main():
             field_for(pixel).to_parquet(args.fields / f"field_{pixel}.parquet", index=False)
     del stars, fields
     run_trials(params, args.fields, OUT / "trials.csv", args.workers, known)
-    summarise(pd.read_csv(OUT / "trials.csv"))
+    summarise(pd.read_csv(OUT / "trials.csv"), args.workers)
 
 
 # --- worker processes: each holds the fields it has used, loaded on demand ---
