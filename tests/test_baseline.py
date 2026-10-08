@@ -137,6 +137,22 @@ def test_cluster_stats_map_labels_to_condensed_tree_nodes():
     assert all(np.isfinite(s) and s >= 0 and np.isfinite(p) and p >= 0 for s, p in stats.values())
 
 
+def test_tree_cache_changes_no_result(sky):
+    df, _, _ = sky
+    field = bl.select_field(df, CENTRE)
+    try:
+        bl.USE_TREE_CACHE = False
+        off = bl.run_hdbscan(field, CENTRE)
+        bl.USE_TREE_CACHE = True
+        on = bl.run_hdbscan(field, CENTRE)
+    finally:
+        bl.USE_TREE_CACHE = True
+    key = lambda g: (g["min_cluster_size"], tuple(sorted(g["source_ids"])))
+    assert [key(g) for g in sorted(off, key=key)] == [key(g) for g in sorted(on, key=key)]
+    assert sorted((g["cst"], g["stability"], g["persistence"]) for g in off) == \
+        sorted((g["cst"], g["stability"], g["persistence"]) for g in on)
+
+
 def test_detects_central_cluster_and_drops_neighbour(sky):
     df, a, c = sky
     groups = bl.detect(df, CENTRE)

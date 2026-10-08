@@ -10,12 +10,15 @@ merged, keeping the highest CST.
 
 `df` columns: source_id, l, b, parallax_corrected, pm_l, pm_b (README.md).
 """
+import tempfile
+
 import astropy.units as u
 import hdbscan
 import numpy as np
 from astropy.coordinates import SkyCoord
 from astropy_healpix import healpix_to_lonlat, neighbours
 from hdbscan._hdbscan_tree import compute_stability
+from joblib import Memory
 
 from config import load_config
 from features import to_features
@@ -24,6 +27,7 @@ from scoring import jaccard
 from splits import galactic_block
 
 CFG = load_config()["search"]
+USE_TREE_CACHE = True  # False only to verify that caching changes nothing
 
 
 def field_pixels(centre, level=CFG["field_level"]):
@@ -75,9 +79,14 @@ def run_hdbscan(df_field, centre, level=CFG["field_level"]):
     X = to_features(recentre(df_field, l0, b0))
     ids = df_field.source_id.to_numpy()
     groups = []
+    # The minimum spanning tree depends only on X and min_samples, so it is built
+    # once and reused for every min_cluster_size (hdbscan's own joblib cache).
+    cache_dir = tempfile.TemporaryDirectory()
+    memory = Memory(cache_dir.name if USE_TREE_CACHE else None, verbose=0)  # None = hdbscan's no-cache default
     for mcs in CFG["min_cluster_size"]:
         clusterer = hdbscan.HDBSCAN(min_cluster_size=mcs, min_samples=CFG["min_samples"],
-                                    cluster_selection_method=CFG["cluster_selection_method"]).fit(X)
+                                    cluster_selection_method=CFG["cluster_selection_method"],
+                                    memory=memory).fit(X)
         labels = clusterer.labels_
         if labels.max() < 0:
             continue
@@ -95,6 +104,7 @@ def run_hdbscan(df_field, centre, level=CFG["field_level"]):
                 "parallax_corrected": float(np.median(members.parallax_corrected)),
                 "pm_l": float(np.median(members.pm_l)), "pm_b": float(np.median(members.pm_b)),
             })
+    cache_dir.cleanup()
     return groups
 
 
