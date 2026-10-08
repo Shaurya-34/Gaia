@@ -33,14 +33,16 @@ search:                          # section 3
   ablation_tau_myr: [5, 10, 20]  # Cartesian ablation only
 
 injection:                       # section 4
-  n_members: [10, 2000]          # log-uniform
+  n_members: [3, 2000]           # log-uniform (PREREG section 11, 2026-10-08; was 10)
   dist_pc: [50, 500]             # uniform
   r_half_pc: [0.5, 10.0]         # log-uniform
   sigma_v_kms: [0.2, 2.0]        # log-uniform
   twin_k: 50                     # twin drawn from the k nearest real stars (Code choice, not in PREREG)
   distance_bins_pc: [50, 140, 230, 320, 410, 500]
   n_star_bins: [5, 10, 25, 60, 150, 2000]
-  trials_per_cell_trainval: 20
+  trials_per_cell_trainval: 20   # cells with n_* bin below 25
+  trials_per_cell_trainval_rich: 5   # cells with n_* bin of 25 or more (PREREG section 11, 2026-10-08)
+  rich_n_star: 25
   trials_per_cell_test: 6
   max_attempts_per_cell: 100
   pilot_trials: 100
