@@ -1,0 +1,82 @@
+[
+  {
+    "cluster": "Melotte_22",
+    "common_name": "Pleiades",
+    "field_pixel": 98,
+    "field_stars": 478235,
+    "stars_per_field_pixel": {
+      "96": 48592,
+      "97": 62120,
+      "98": 55702,
+      "99": 60477,
+      "104": 66356,
+      "105": 66507,
+      "149": 39295,
+      "151": 45032,
+      "157": 34154
+    },
+    "catalogue_members": 1721,
+    "members_after_cuts": 1230,
+    "groups": 84,
+    "best_jaccard": 0.943,
+    "best_cst": 30.1,
+    "best_n_members": 1193,
+    "best_min_cluster_size": 20,
+    "passes": true,
+    "must_pass": true,
+    "runtime_s": 758
+  },
+  {
+    "cluster": "Melotte_20",
+    "common_name": "alpha Per",
+    "field_pixel": 106,
+    "field_stars": 395280,
+    "stars_per_field_pixel": {
+      "16": 25080,
+      "17": 31812,
+      "85": 8613,
+      "104": 66356,
+      "105": 66507,
+      "106": 69284,
+      "107": 64266,
+      "157": 34154,
+      "159": 29208
+    },
+    "catalogue_members": 938,
+    "members_after_cuts": 668,
+    "groups": 76,
+    "best_jaccard": 0.865,
+    "best_cst": 28.24,
+    "best_n_members": 770,
+    "best_min_cluster_size": 20,
+    "passes": true,
+    "must_pass": true,
+    "runtime_s": 175
+  },
+  {
+    "cluster": "Melotte_25",
+    "common_name": "Hyades",
+    "field_pixel": 96,
+    "field_stars": 372748,
+    "stars_per_field_pixel": {
+      "96": 48592,
+      "97": 62120,
+      "98": 55702,
+      "99": 60477,
+      "149": 39295,
+      "151": 45032,
+      "170": 35293,
+      "171": 26237
+    },
+    "catalogue_members": 927,
+    "members_after_cuts": 482,
+    "groups": 69,
+    "best_jaccard": 0.631,
+    "best_cst": 18.88,
+    "best_n_members": 322,
+    "best_min_cluster_size": 40,
+    "passes": true,
+    "must_pass": false,
+    "runtime_s": 164
+  }
+]
