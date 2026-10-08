@@ -44,6 +44,14 @@ def run_trial(field, params, seed, known_members=None):
     """Inject one cluster into `field` (stars of its level-2 field), run the
     baseline, match and score. Returns one result row. With `known_members`
     (Hunt & Reffert 2023), the PREREG section 5 overlap rule is reported."""
+    return run_trial_full(field, params, seed, known_members)["row"]
+
+
+def run_trial_full(field, params, seed, known_members=None):
+    """As run_trial, plus the matched group's source_ids and its vetter
+    feature row (vetter_features.cluster_features), or None if nothing matched."""
+    from vetter_features import cluster_features
+
     rng = np.random.default_rng(seed)
     field_with, truth = injection.inject(field, params, rng)
     t0 = time.perf_counter()
@@ -71,7 +79,14 @@ def run_trial(field, params, seed, known_members=None):
         discard, name, n_known = (catalogue.known_overlap(match["source_ids"], members, known_members)
                                   if match else (False, None, 0))
         row.update({"known_overlap_discard": discard, "known_overlap_cluster": name, "known_overlap_n": n_known})
-    return row
+    row["low_n_star"] = truth["n_surviving"] < CFG["definitions"]["min_n_star_fit"]
+    vetter = None
+    if match:
+        group = field_with[field_with.source_id.isin(match["source_ids"])]
+        vetter = cluster_features(group, field_with, {
+            "cst": match["cst"], "stability": match["stability"], "persistence": match["persistence"],
+            "membership_probs": [match["mean_membership_probability"]]})
+    return {"row": row, "group_ids": match["source_ids"] if match else None, "vetter": vetter}
 
 
 def summarise(trials, workers=1):

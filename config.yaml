@@ -43,6 +43,10 @@ injection:                       # section 4
   trials_per_cell_trainval: 20   # cells with n_* bin below 25
   trials_per_cell_trainval_rich: 5   # cells with n_* bin of 25 or more (PREREG section 11, 2026-10-08)
   rich_n_star: 25
+  below5_per_distance_bin: 4     # N < 5 trials per distance bin, reported separately (Code choice)
+  main_seed: 20261008            # Code choice; trial k uses default_rng([main_seed, k])
+  memory_guard_gb: 3             # Code choice; free RAM needed before another trial starts (a rare
+                                 # compact-cluster CST spike reaches ~8 GB; two at once would page, not crash)
   trials_per_cell_test: 6
   max_attempts_per_cell: 100
   pilot_trials: 100
