@@ -40,6 +40,27 @@ def peak_memory_gb():
     return getattr(m, "peak_wset", m.rss) / 1e9
 
 
+def rho_data(field, params, truth, k=CFG["analysis"]["rho_data_k"]):
+    """PREREG section 6 density covariate: 1 / distance to the k-th nearest
+    field star (field WITHOUT the injection) of the injected cluster's true
+    centre, in the detector's re-centred, robust-scaled 5-D space. The centre
+    is the cluster's position and bulk velocity, so it is defined even when
+    no member survives."""
+    from scipy.spatial import cKDTree
+    from sklearn.preprocessing import RobustScaler
+
+    from features import HR21_COLUMNS
+
+    l0, b0 = baseline.pixel_centre(params["field_pixel"])
+    ref = baseline.recentre(field, l0, b0)[HR21_COLUMNS].to_numpy()
+    scaler = RobustScaler().fit(ref)
+    centre = injection.cluster_center(params["dist_pc"], params["l_deg"], params["b_deg"])
+    obs = injection.cartesian_to_observables(centre[None, :], np.asarray(truth["bulk_velocity_kms"])[None, :])
+    obs = baseline.recentre(obs.rename(columns={"parallax": "parallax_corrected"}), l0, b0)
+    d, _ = cKDTree(scaler.transform(ref)).query(scaler.transform(obs[HR21_COLUMNS].to_numpy()), k=k)
+    return float(1.0 / d[0, -1])
+
+
 def run_trial(field, params, seed, known_members=None):
     """Inject one cluster into `field` (stars of its level-2 field), run the
     baseline, match and score. Returns one result row. With `known_members`
@@ -54,6 +75,7 @@ def run_trial_full(field, params, seed, known_members=None):
 
     rng = np.random.default_rng(seed)
     field_with, truth = injection.inject(field, params, rng)
+    rho = rho_data(field, params, truth)
     t0 = time.perf_counter()
     groups = baseline.detect(field_with, params["field_pixel"])
     runtime = time.perf_counter() - t0
@@ -63,7 +85,7 @@ def run_trial_full(field, params, seed, known_members=None):
     row = {k: params[k] for k in ["injection_id", "field_pixel", "dist_pc", "l_deg", "b_deg",
                                   "n_members", "r_half_pc", "sigma_v_kms"]}
     row.update({
-        "seed": str(seed), "n_field_stars": len(field), "n_surviving": truth["n_surviving"],
+        "seed": str(seed), "n_field_stars": len(field), "n_surviving": truth["n_surviving"], "rho_data": rho,
         "survival": truth["n_surviving"] / params["n_members"],
         "median_parallax_error": float(np.median(field_with.loc[field_with.is_injected, "parallax_error"]))
         if truth["n_surviving"] else np.nan,

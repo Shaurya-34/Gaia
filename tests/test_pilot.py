@@ -92,6 +92,16 @@ def test_run_trials_in_parallel_and_resume(field, tmp_path):
     pd.testing.assert_frame_equal(a, b)
 
 
+def test_rho_data_tracks_field_density(field):
+    centre, df = field
+    p = trial_params(centre, n_members=3)
+    truth = {"bulk_velocity_kms": np.array([10.0, -5.0, 3.0])}
+    dense = pilot.rho_data(df, p, truth)
+    sparse = pilot.rho_data(df.sample(frac=0.25, random_state=0), p, truth)
+    assert np.isfinite(dense) and dense > 0
+    assert sparse < dense  # a quarter of the stars: larger k-th neighbour distance
+
+
 def test_run_trial_is_deterministic(field):
     centre, df = field
     a = pilot.run_trial(df, trial_params(centre, n_members=40), [1, 1])
