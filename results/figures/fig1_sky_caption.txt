@@ -1,0 +1,1 @@
+Star density of block 6 (1,023,390 stars after the PREREG cuts, parallax >= 2 mas) in Galactic coordinates, with the central pixels of the four pilot fields outlined and three known clusters marked. Limitation: one region of the sky only; the Hyades (47 pc) lies just outside the 50-500 pc search range and is shown for reference.
