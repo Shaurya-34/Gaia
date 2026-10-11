@@ -81,6 +81,25 @@ def test_ignores_truth_columns(make_group):
     assert_features_equal(clean, dirty)
 
 
+def test_extent_is_the_same_across_l_0_360():
+    """A field straddling l = 0/360 must give the same 5-D extent as the same
+    field rotated to l = 180. The old code scaled l by the wrapped field's
+    ~350 degree spread, so a group's size on the sky stopped counting; a group
+    spread over a few degrees (like a nearby cluster) shows it."""
+    rng = np.random.default_rng(5)
+    field = synthetic_field(20_000, rng)
+    blob = synthetic_blob(60, rng)
+    blob["l"] = 110.0 + rng.normal(0, 2.0, len(blob))  # extended on the sky
+    for df in (field, blob):  # centre both on l = 180 first (field 100-120 -> 170-190)
+        df["l"] = df.l + 70.0
+    at_180 = cluster_features(blob, field)["5d_extent"]
+    wrapped_field, wrapped_blob = field.copy(), blob.copy()
+    for df in (wrapped_field, wrapped_blob):
+        df["l"] = (df.l - 180.0) % 360  # same geometry, now straddling l = 0/360
+    at_0 = cluster_features(wrapped_blob, wrapped_field)["5d_extent"]
+    assert at_0 == pytest.approx(at_180, rel=0.05)
+
+
 @pytest.mark.parametrize("n", [0, 1, 2, 3, 4])
 def test_tiny_group_gives_nan_scatter(n):
     rng = np.random.default_rng(4)

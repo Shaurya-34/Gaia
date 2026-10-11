@@ -2,6 +2,15 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import RobustScaler
 
+from baseline import recentre
+
+
+def _field_centre(field):
+    """Mean direction of the field's stars (wrap-safe), as (l, b) in degrees."""
+    l, b = np.deg2rad(field.l.to_numpy()), np.deg2rad(field.b.to_numpy())
+    v = np.array([np.mean(np.cos(b) * np.cos(l)), np.mean(np.cos(b) * np.sin(l)), np.mean(np.sin(b))])
+    return float(np.rad2deg(np.arctan2(v[1], v[0])) % 360), float(np.rad2deg(np.arcsin(v[2] / np.linalg.norm(v))))
+
 def cluster_features(members: pd.DataFrame, field: pd.DataFrame, hdbscan_info: dict = None) -> dict[str, float]:
     """
     Extracts vetting features for a detected stellar group to evaluate its authenticity.
@@ -48,9 +57,13 @@ def cluster_features(members: pd.DataFrame, field: pd.DataFrame, hdbscan_info: d
     spatial_cols = ['l', 'b', 'parallax_corrected', 'pm_l', 'pm_b']
 
     if len(members) > 0:
+        # Re-centre field and members on the field's centre, as the detector does
+        # (baseline.recentre), so a field crossing l = 0/360 does not split in l.
+        l0, b0 = _field_centre(field)
+        field_rc, members_rc = recentre(field, l0, b0), recentre(members, l0, b0)
         # Fit scaler on the field so a tight group keeps a small extent
-        scaler = RobustScaler().fit(field[spatial_cols])
-        scaled_coords = scaler.transform(members[spatial_cols])
+        scaler = RobustScaler().fit(field_rc[spatial_cols])
+        scaled_coords = scaler.transform(members_rc[spatial_cols])
 
         # Calculate the centroid (median coordinates in the robust space)
         centroid = np.median(scaled_coords, axis=0)
