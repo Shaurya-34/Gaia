@@ -40,10 +40,11 @@ injection:                       # section 4
   twin_k: 50                     # twin drawn from the k nearest real stars (Code choice, not in PREREG)
   distance_bins_pc: [50, 140, 230, 320, 410, 500]
   n_star_bins: [5, 10, 25, 60, 150, 2000]
-  trials_per_cell_trainval: 20   # cells with n_* bin below 25
-  trials_per_cell_trainval_rich: 5   # cells with n_* bin of 25 or more (PREREG section 11, 2026-10-08)
+  trials_per_cell_trainval: 10   # cells with n_* bin below 25 (closure scope, PREREG section 11, 2026-10-11)
+  trials_per_cell_trainval_rich: 3   # cells with n_* bin of 25 or more
   rich_n_star: 25
-  below5_per_distance_bin: 4     # N < 5 trials per distance bin, reported separately (Code choice)
+  below5_per_distance_bin: 2     # N < 5 trials per distance bin, reported separately
+  main_blocks: [6]               # closure scope: block 6 only
   main_seed: 20261008            # Code choice; trial k uses default_rng([main_seed, k])
   memory_guard_gb: 3             # Code choice; free RAM needed before another trial starts (a rare
                                  # compact-cluster CST spike reaches ~8 GB; two at once would page, not crash)

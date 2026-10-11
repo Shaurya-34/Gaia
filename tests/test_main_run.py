@@ -14,8 +14,10 @@ def test_cell_targets_follow_adaptive_allocation():
             assert target == mr.INJ["trials_per_cell_trainval_rich"]
         else:
             assert target == mr.INJ["trials_per_cell_trainval"]
-    # 2 sparse n_* bins x 5 distance bins x 20 + 3 rich bins x 5 x 5 + 4 below-5 per distance bin
-    assert sum(t.values()) == 2 * 5 * 20 + 3 * 5 * 5 + 5 * 4
+    # 2 sparse n_* bins and 3 rich bins per distance bin, plus the N < 5 quota
+    inj = mr.INJ
+    assert sum(t.values()) == n_dist * (2 * inj["trials_per_cell_trainval"] + 3 * inj["trials_per_cell_trainval_rich"]
+                                        + inj["below5_per_distance_bin"])
 
 
 def test_cell_of_edges():
