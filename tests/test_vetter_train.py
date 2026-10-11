@@ -104,6 +104,14 @@ def test_score_test_runs_only_once(tmp_path):
         vt.score_test(fitted, df_test, np.random.default_rng(3), lock_path=lock)
 
 
+def test_split_by_trial_keeps_trials_whole():
+    df = pd.DataFrame({"trial_key": np.repeat([f"t{i}" for i in range(50)], 4), "x": range(200)})
+    out = vt.split_by_trial(df)
+    assert out.groupby("trial_key").split.nunique().max() == 1
+    assert set(out.split) == {"train", "val", "test"}
+    pd.testing.assert_frame_equal(out, vt.split_by_trial(df))  # seeded
+
+
 def test_score_test_rejects_non_test_blocks(tmp_path):
     df_train, df_val, _ = datasets(separable=True)
     fitted = vt.train(df_train, df_val)

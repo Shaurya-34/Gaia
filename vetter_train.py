@@ -35,7 +35,22 @@ def load_split(block):
     return names[0]
 
 
+def split_by_trial(df, key="trial_key", fractions=(0.6, 0.2, 0.2), seed=CFG["vetter"]["seed"]):
+    """One-block case (closure scope): assign whole trials to train/val/test so
+    all groups from one trial (an injection, or one shuffled search) stay on the
+    same side. Returns df with a `split` column. Block splits stay available
+    through load_split for the multi-block case."""
+    keys = np.random.default_rng(seed).permutation(sorted(df[key].unique()))
+    n_train, n_val = int(fractions[0] * len(keys)), int(fractions[1] * len(keys))
+    side = {k: "train" for k in keys[:n_train]}
+    side.update({k: "val" for k in keys[n_train:n_train + n_val]})
+    side.update({k: "test" for k in keys[n_train + n_val:]})
+    return df.assign(split=df[key].map(side))
+
+
 def _check_split(df, split):
+    if "block" not in df:  # one-block case: split_by_trial already separated the sides
+        return
     wrong = sorted({int(b) for b in df.block if load_split(int(b)) != split})
     if wrong:
         raise ValueError(f"rows from blocks {wrong} are not in the {split} split")
