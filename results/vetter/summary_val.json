@@ -1,0 +1,42 @@
+{
+  "counts": {
+    "train": {
+      "positives": 56,
+      "negatives": 397
+    },
+    "val": {
+      "positives": 18,
+      "negatives": 143
+    },
+    "test": {
+      "positives": 17,
+      "negatives": 380
+    }
+  },
+  "features": [
+    "member_count",
+    "cst",
+    "hdbscan_stability",
+    "hdbscan_persistence",
+    "mean_membership_probability",
+    "5d_extent"
+  ],
+  "feature_importance_gain": {
+    "member_count": 3.1,
+    "cst": 2270.5,
+    "hdbscan_stability": 0.0,
+    "hdbscan_persistence": 12.3,
+    "mean_membership_probability": 66.1,
+    "5d_extent": 85.6
+  },
+  "validation": {
+    "difference": 0.03678929765886285,
+    "ci95": [
+      -0.08913791535289839,
+      0.14325305484512646
+    ],
+    "passes": false
+  },
+  "threshold_from_validation": 0.49167943590454616,
+  "caveat": "Positives are injected clusters (twin-star photometry) and negatives are shuffled real data, so the vetter learns injected-vs-shuffled, not real clusters vs real noise."
+}

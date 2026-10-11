@@ -1,0 +1,1 @@
+Interactive detection-probability explorer: sliders for surviving members and distance return the fitted PREREG section 6 model's probability that the baseline detects a group (CST > 3), with parallax error and density held at block-6 medians. Limitation: valid only inside block 6's fitted range and the PREREG cuts; checked on held-out trials, not unseen sky.

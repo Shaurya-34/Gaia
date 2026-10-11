@@ -1,0 +1,44 @@
+{
+  "fields": [
+    99,
+    102,
+    105,
+    108
+  ],
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "central_pixel_stars": {
+    "99": 60477,
+    "102": 72967,
+    "105": 66507,
+    "108": 66626
+  },
+  "central_star_searches": 799731,
+  "shuffle_groups": 920,
+  "real_groups": 357,
+  "false_positives_by_tau": {
+    "3": {
+      "detections": 39,
+      "per_million_central_stars": 48.76639770122704
+    },
+    "5": {
+      "detections": 25,
+      "per_million_central_stars": 31.260511346940405
+    },
+    "7": {
+      "detections": 19,
+      "per_million_central_stars": 23.757988623674713
+    }
+  },
+  "budget_per_million": 1,
+  "operating_tau": null,
+  "real_groups_above_tau": {
+    "3": 39,
+    "5": 33,
+    "7": 20
+  },
+  "real_groups_matching_hr23_j_ge_0.5": 15
+}

@@ -57,9 +57,9 @@ def main():
     ax.set_title("Detection probability in block 6: fitted model, 95% bootstrap band, binned rates")
     ax.legend(title="distance", fontsize=8, title_fontsize=8, loc="center right")
     held = fit["held_out"]["full_model"]
-    ax.text(0.01, 0.97, f"held-out trials: n = {held['n']}, Brier {held['brier']:.3f}, AUC "
+    ax.text(0.99, 0.22, f"held-out trials: n = {held['n']}, Brier {held['brier']:.3f}, AUC "
             f"{held['auc']:.2f}, calibration slope {held['slope']:.2f}", transform=ax.transAxes, fontsize=7,
-            color=INK2, va="top")
+            color=INK2, ha="right", va="bottom")
     fig.tight_layout()
     save(fig, "fig5_detectability",
          f"Probability that the baseline detects an injected group (CST > {tau}) against its surviving member count, "

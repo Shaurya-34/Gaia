@@ -1,0 +1,1 @@
+Detected fraction (CST > 3) per distance and surviving-member cell in block 6, with the number of trials in each cell; cells with fewer than 3 trials are greyed and not coloured. Limitation: halved allocation (about 10 trials per cell below n* = 25 and 3 above), so rich cells carry wide uncertainty.
